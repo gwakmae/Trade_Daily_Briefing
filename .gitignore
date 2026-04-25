@@ -1,0 +1,24 @@
+# 민감한 정보
+.env
+settings.json
+
+# 생성 파일
+output/
+history/
+
+# Python 캐시
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.user
+
+# OS
+.DS_Store
+Thumbs.db

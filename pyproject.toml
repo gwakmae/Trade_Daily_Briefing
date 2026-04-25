@@ -1,0 +1,13 @@
+[project]
+name = "traiding-daily-briefing"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "dotenv>=0.9.9",
+    "metatrader5>=5.0.5735",
+    "pandas>=3.0.2",
+    "pyqt6>=6.11.0",
+    "requests>=2.33.1",
+]
