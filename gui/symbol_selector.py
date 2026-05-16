@@ -6,19 +6,27 @@ from PyQt6.QtWidgets import (
     QCheckBox, QPushButton, QGroupBox,
     QScrollArea, QLabel, QComboBox
 )
-from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
-from config import SYMBOLS, WEEKEND_SYMBOLS, BROKERS
+
+from config import (
+    SYMBOLS, WEEKEND_SYMBOLS,
+    DEFAULT_BROKER, load_settings, save_settings
+)
 
 
 class SymbolSelector(QWidget):
 
-    def __init__(self, show_broker=True, parent=None):
+    def __init__(self, show_broker=True, settings_key: str = "default", parent=None):
         super().__init__(parent)
+
         self.show_broker   = show_broker
-        self.checkboxes    = {}   # display_name → QCheckBox
-        self.broker_combos = {}   # display_name → QComboBox
+        self.settings_key   = settings_key
+        self.checkboxes     = {}   # display_name → QCheckBox
+        self.broker_combos  = {}   # display_name → QComboBox
+        self._loading_state = False
+
         self._init_ui()
+        self.load_selection()
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
@@ -67,6 +75,7 @@ class SymbolSelector(QWidget):
                 cb = QCheckBox(display_name)
                 cb.setChecked(True)
                 cb.setFont(QFont("Segoe UI", 9))
+                cb.toggled.connect(self._save_selection)
                 self.checkboxes[display_name] = cb
                 row_layout.addWidget(cb)
 
@@ -79,12 +88,13 @@ class SymbolSelector(QWidget):
                         combo.setFixedWidth(140)
                         combo.setFont(QFont("Segoe UI", 8))
                         self.broker_combos[display_name] = combo
+
                         row_layout.addWidget(QLabel("브로커:"))
                         row_layout.addWidget(combo)
 
-                        # 브로커 변경 시 활성화 상태 업데이트
                         combo.currentTextChanged.connect(
-                            lambda text, dn=display_name: self._on_broker_changed(dn, text)
+                            lambda text, dn=display_name:
+                            self._on_broker_changed(dn, text)
                         )
 
                 row_layout.addStretch()
@@ -100,18 +110,22 @@ class SymbolSelector(QWidget):
     # 브로커 변경 시 비활성화 처리
     # --------------------------------
     def _on_broker_changed(self, display_name: str, broker_name: str):
-        cb          = self.checkboxes.get(display_name)
-        broker_map  = self._get_broker_map(display_name)
+        cb         = self.checkboxes.get(display_name)
+        broker_map = self._get_broker_map(display_name)
+
         if cb is None or broker_map is None:
             return
 
         supported = broker_name in broker_map
         cb.setEnabled(supported)
+
         if not supported:
             cb.setChecked(False)
             cb.setToolTip(f"{broker_name} 에서 지원하지 않는 종목입니다.")
         else:
             cb.setToolTip("")
+
+        self._save_selection()
 
     def _get_broker_map(self, display_name: str) -> dict | None:
         for section in SYMBOLS.values():
@@ -120,15 +134,82 @@ class SymbolSelector(QWidget):
         return None
 
     # --------------------------------
-    # 전체 브로커 변경 (리포트탭 글로벌 브로커 선택 시 사용)
+    # 선택 상태 저장
+    # --------------------------------
+    def _save_selection(self):
+        if self._loading_state:
+            return
+
+        settings   = load_settings()
+        selections = settings.setdefault("symbol_selections", {})
+
+        data = {}
+
+        for display_name, cb in self.checkboxes.items():
+            broker = DEFAULT_BROKER
+
+            combo = self.broker_combos.get(display_name)
+            if combo:
+                broker = combo.currentText()
+
+            data[display_name] = {
+                "checked": cb.isChecked(),
+                "broker":  broker,
+            }
+
+        selections[self.settings_key] = data
+        save_settings(settings)
+
+    # --------------------------------
+    # 선택 상태 불러오기
+    # --------------------------------
+    def load_selection(self):
+        settings   = load_settings()
+        selections = settings.get("symbol_selections", {})
+        data       = selections.get(self.settings_key, {})
+
+        if not data:
+            return
+
+        self._loading_state = True
+
+        try:
+            # 1) 브로커 먼저 복원
+            for display_name, saved in data.items():
+                combo  = self.broker_combos.get(display_name)
+                broker = saved.get("broker")
+
+                if combo and broker:
+                    idx = combo.findText(broker)
+                    if idx >= 0:
+                        combo.setCurrentIndex(idx)
+
+            # 2) 현재 브로커 기준 활성화 상태 갱신
+            for display_name, combo in self.broker_combos.items():
+                self._on_broker_changed(display_name, combo.currentText())
+
+            # 3) 체크 상태 복원
+            for display_name, saved in data.items():
+                cb = self.checkboxes.get(display_name)
+                if cb:
+                    checked = bool(saved.get("checked", False))
+                    cb.setChecked(checked and cb.isEnabled())
+
+        finally:
+            self._loading_state = False
+
+    # --------------------------------
+    # 전체 브로커 변경
     # --------------------------------
     def set_global_broker(self, broker_name: str):
         for display_name, combo in self.broker_combos.items():
             idx = combo.findText(broker_name)
             if idx >= 0:
                 combo.setCurrentIndex(idx)
-            # 지원 안 하는 종목 비활성화
+
             self._on_broker_changed(display_name, combo.currentText())
+
+        self._save_selection()
 
     # --------------------------------
     # 빠른 선택 메서드
@@ -138,52 +219,78 @@ class SymbolSelector(QWidget):
             broker_map = self._get_broker_map(display_name)
             combo      = self.broker_combos.get(display_name)
             broker     = combo.currentText() if combo else None
+
             if broker and broker_map and broker not in broker_map:
-                continue   # 지원 안 하는 종목은 건너뜀
-            cb.setChecked(True)
+                continue
+
+            if cb.isEnabled():
+                cb.setChecked(True)
+
+        self._save_selection()
 
     def deselect_all(self):
         for cb in self.checkboxes.values():
             cb.setChecked(False)
 
+        self._save_selection()
+
     def select_weekend(self):
         self.deselect_all()
+
         for name in WEEKEND_SYMBOLS:
             if name in self.checkboxes:
-                self.checkboxes[name].setChecked(True)
+                cb = self.checkboxes[name]
+                if cb.isEnabled():
+                    cb.setChecked(True)
+
+        self._save_selection()
 
     def select_index(self):
         self.deselect_all()
+
         for name in SYMBOLS.get("지수", {}).keys():
             if name in self.checkboxes:
                 cb         = self.checkboxes[name]
                 broker_map = self._get_broker_map(name)
                 combo      = self.broker_combos.get(name)
                 broker     = combo.currentText() if combo else None
+
                 if broker and broker_map and broker not in broker_map:
                     continue
-                cb.setChecked(True)
+
+                if cb.isEnabled():
+                    cb.setChecked(True)
+
+        self._save_selection()
 
     def select_forex(self):
         self.deselect_all()
+
         for section in ["포렉스 메이저", "포렉스 크로스"]:
             for name in SYMBOLS.get(section, {}).keys():
                 if name in self.checkboxes:
-                    self.checkboxes[name].setChecked(True)
+                    cb = self.checkboxes[name]
+                    if cb.isEnabled():
+                        cb.setChecked(True)
+
+        self._save_selection()
 
     # --------------------------------
     # 선택된 종목 반환
     # --------------------------------
     def get_selected(self) -> list[dict]:
-        from config import DEFAULT_BROKER
         result = []
+
         for display_name, cb in self.checkboxes.items():
             if cb.isChecked() and cb.isEnabled():
                 broker = DEFAULT_BROKER
+
                 if display_name in self.broker_combos:
                     broker = self.broker_combos[display_name].currentText()
+
                 result.append({
                     "display_name": display_name,
                     "broker":       broker,
                 })
+
         return result

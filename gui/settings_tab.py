@@ -11,13 +11,24 @@ from PyQt6.QtWidgets import (
     QLineEdit, QFileDialog, QMessageBox
 )
 from PyQt6.QtGui import QFont
-from config import CANDLE_THRESHOLDS, BROKERS, BASE_DIR, load_settings, save_settings
+
+from config import (
+    CANDLE_THRESHOLDS,
+    BROKERS,
+    BASE_DIR,
+    load_settings,
+    save_settings
+)
 
 
 class SettingsTab(QWidget):
 
     def __init__(self):
         super().__init__()
+
+        self.spins = {}
+        self.path_edits = {}
+
         self._init_ui()
 
     def _init_ui(self):
@@ -27,16 +38,17 @@ class SettingsTab(QWidget):
         # --------------------------------
         # 1. config.py 편집
         # --------------------------------
-        config_group  = QGroupBox("브로커 계정 설정 (config.py 직접 편집)")
+        config_group = QGroupBox("브로커 계정 설정")
         config_group.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+
         config_layout = QHBoxLayout(config_group)
 
-        btn_open = QPushButton("📝 메모장으로 config.py 열기")
+        btn_open = QPushButton("📄 config.py 메모장으로 열기")
         btn_open.setFixedHeight(34)
         btn_open.clicked.connect(self._open_config)
         config_layout.addWidget(btn_open)
 
-        btn_reload = QPushButton("🔄 새로고침 (변경사항 적용)")
+        btn_reload = QPushButton("🔄 새로고침")
         btn_reload.setFixedHeight(34)
         btn_reload.clicked.connect(self._reload_config)
         config_layout.addWidget(btn_reload)
@@ -49,9 +61,9 @@ class SettingsTab(QWidget):
         # --------------------------------
         threshold_group = QGroupBox("캔들 분석 임계값")
         threshold_group.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+
         form = QFormLayout(threshold_group)
 
-        self.spins = {}
         labels = {
             "reversal_wick":  "반전 캔들 꼬리 기준 (%)",
             "reversal_body":  "반전 캔들 몸통 기준 (%)",
@@ -60,40 +72,49 @@ class SettingsTab(QWidget):
             "swing_lookback": "스윙 포인트 양쪽 캔들 수",
             "data_count":     "MT5 데이터 수집 캔들 수",
         }
+
         for key, label in labels.items():
             spin = QSpinBox()
             spin.setRange(1, 200)
             spin.setValue(CANDLE_THRESHOLDS[key])
             spin.setFixedWidth(80)
+
             self.spins[key] = spin
             form.addRow(label, spin)
 
         layout.addWidget(threshold_group)
 
-        btn_save = QPushButton("💾 임계값 저장 (현재 세션 적용)")
-        btn_save.setFixedHeight(34)
-        btn_save.clicked.connect(self._save_thresholds)
-        layout.addWidget(btn_save)
+        btn_save_thresholds = QPushButton("💾 임계값 저장")
+        btn_save_thresholds.setFixedHeight(34)
+        btn_save_thresholds.clicked.connect(self._save_thresholds)
+        layout.addWidget(btn_save_thresholds)
 
         self.threshold_label = QLabel("")
         layout.addWidget(self.threshold_label)
 
         # --------------------------------
-        # 3. MT5 Scripts 복사 경로
+        # 3. 브로커별 MT5 Scripts 복사 경로
         # --------------------------------
-        path_group  = QGroupBox("브로커별 MT5 Scripts 복사 경로")
+        path_group = QGroupBox("브로커별 MT5 Scripts 복사 경로")
         path_group.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+
         path_layout = QVBoxLayout(path_group)
 
-        settings          = load_settings()
-        self.path_edits   = {}
+        info = QLabel(
+            "스크립트 탭에서 생성된 파일은 각 종목이 선택한 브로커의 Scripts 경로로 복사됩니다."
+        )
+        info.setStyleSheet("color:#666;font-size:11px;")
+        info.setWordWrap(True)
+        path_layout.addWidget(info)
+
+        settings = load_settings()
         mt5_scripts_paths = settings.get("mt5_scripts_paths", {})
 
         for broker_name, cfg in BROKERS.items():
             if cfg.get("type") != "mt5":
                 continue
 
-            row        = QWidget()
+            row = QWidget()
             row_layout = QHBoxLayout(row)
             row_layout.setContentsMargins(0, 4, 0, 4)
 
@@ -105,6 +126,7 @@ class SettingsTab(QWidget):
             edit.setPlaceholderText("MT5 Scripts 폴더 경로 입력 또는 찾아보기...")
             edit.setText(mt5_scripts_paths.get(broker_name, ""))
             edit.setFont(QFont("Consolas", 8))
+
             self.path_edits[broker_name] = edit
             row_layout.addWidget(edit)
 
@@ -115,6 +137,7 @@ class SettingsTab(QWidget):
                 lambda checked, bn=broker_name: self._browse_path(bn)
             )
             row_layout.addWidget(btn_browse)
+
             path_layout.addWidget(row)
 
         btn_save_paths = QPushButton("💾 경로 저장")
@@ -133,59 +156,86 @@ class SettingsTab(QWidget):
     # --------------------------------
     def _open_config(self):
         config_path = os.path.join(BASE_DIR, "config.py")
+
         try:
             subprocess.Popen(["notepad.exe", config_path])
         except Exception as e:
-            QMessageBox.critical(self, "오류", f"메모장 열기 실패:\n{e}")
+            QMessageBox.critical(
+                self,
+                "오류",
+                f"config.py 열기 실패:\n{e}"
+            )
 
     # --------------------------------
-    # config.py 새로고침
+    # config.py / settings.json 새로고침
     # --------------------------------
     def _reload_config(self):
         try:
             import config
             importlib.reload(config)
 
-            # 임계값 스핀박스 업데이트
+            # 임계값 다시 로드
             for key, spin in self.spins.items():
                 spin.setValue(config.CANDLE_THRESHOLDS[key])
 
-            # 경로 에디트 업데이트
+            # 경로 다시 로드
             settings = config.load_settings()
-            paths    = settings.get("mt5_scripts_paths", {})
+            paths = settings.get("mt5_scripts_paths", {})
+
             for broker_name, edit in self.path_edits.items():
                 edit.setText(paths.get(broker_name, ""))
 
-            self.threshold_label.setText("✅ config.py 새로고침 완료")
+            self.threshold_label.setText("✅ 새로고침 완료")
+            self.path_label.setText("✅ settings.json 다시 로드 완료")
+
         except Exception as e:
-            QMessageBox.critical(self, "오류", f"새로고침 실패:\n{e}")
+            QMessageBox.critical(
+                self,
+                "오류",
+                f"새로고침 실패:\n{e}"
+            )
 
     # --------------------------------
-    # 임계값 저장 (현재 세션)
+    # 임계값 저장
     # --------------------------------
     def _save_thresholds(self):
         for key, spin in self.spins.items():
             CANDLE_THRESHOLDS[key] = spin.value()
-        self.threshold_label.setText("✅ 저장됨 (현재 세션에만 적용, 영구 저장은 config.py 수정)")
+
+        self.threshold_label.setText(
+            "✅ 임계값 저장 완료 "
+            "(현재 실행 중인 세션에 적용됩니다. 영구 변경은 config.py 수정 필요)"
+        )
 
     # --------------------------------
-    # 복사 경로 찾아보기
+    # 브로커별 Scripts 경로 찾아보기
     # --------------------------------
     def _browse_path(self, broker_name: str):
         folder = QFileDialog.getExistingDirectory(
-            self, f"{broker_name} MT5 Scripts 폴더 선택"
+            self,
+            f"{broker_name} MT5 Scripts 폴더 선택"
         )
+
         if folder:
             self.path_edits[broker_name].setText(folder)
 
     # --------------------------------
-    # 복사 경로 저장 (settings.json)
+    # 브로커별 Scripts 경로 저장
     # --------------------------------
     def _save_paths(self):
         settings = load_settings()
-        paths    = {}
+
+        paths = {}
+
         for broker_name, edit in self.path_edits.items():
             paths[broker_name] = edit.text().strip()
+
         settings["mt5_scripts_paths"] = paths
+
+        # 이전에 잘못 추가했던 종목별 경로 설정이 남아 있으면 제거
+        if "mt5_symbol_scripts_paths" in settings:
+            del settings["mt5_symbol_scripts_paths"]
+
         save_settings(settings)
-        self.path_label.setText("✅ 경로 저장 완료 (settings.json)")
+
+        self.path_label.setText("✅ 경로 저장 완료")

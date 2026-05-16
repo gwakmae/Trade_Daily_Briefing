@@ -8,6 +8,7 @@ dependencies = [
     "dotenv>=0.9.9",
     "metatrader5>=5.0.5735",
     "pandas>=3.0.2",
+    "playwright>=1.59.0",
     "pyqt6>=6.11.0",
     "requests>=2.33.1",
 ]

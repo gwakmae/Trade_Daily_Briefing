@@ -1,5 +1,5 @@
 # core/candle_analyzer.py
-# 캔들 분석 로직 (꼬리/몸통 비율, 스윙 포인트, 캔들 번호, 해석 텍스트)
+# 캔들 분석 로직 (일봉/주봉 공용)
 
 import pandas as pd
 from config import CANDLE_THRESHOLDS, DECIMAL_PLACES
@@ -15,7 +15,7 @@ class CandleAnalyzer:
         self.slb = CANDLE_THRESHOLDS["swing_lookback"]
 
     # --------------------------------
-    # 전체 분석 파이프라인
+    # 전체 분석 파이프라인 (일봉/주봉 공용)
     # --------------------------------
     def analyze(self, df: pd.DataFrame) -> pd.DataFrame:
         df = df.copy()
@@ -41,9 +41,12 @@ class CandleAnalyzer:
         def pct(val, rng):
             return round(val / rng * 100, 1) if rng > 0 else 0.0
 
-        df['body_pct']       = df.apply(lambda r: pct(r['body'],       r['range']), axis=1)
-        df['upper_wick_pct'] = df.apply(lambda r: pct(r['upper_wick'], r['range']), axis=1)
-        df['lower_wick_pct'] = df.apply(lambda r: pct(r['lower_wick'], r['range']), axis=1)
+        df['body_pct']       = df.apply(
+            lambda r: pct(r['body'],       r['range']), axis=1)
+        df['upper_wick_pct'] = df.apply(
+            lambda r: pct(r['upper_wick'], r['range']), axis=1)
+        df['lower_wick_pct'] = df.apply(
+            lambda r: pct(r['lower_wick'], r['range']), axis=1)
         return df
 
     # --------------------------------
@@ -54,11 +57,15 @@ class CandleAnalyzer:
         df['swing_high'] = False
         df['swing_low']  = False
         for i in range(n, len(df) - n):
-            if all(df['high'].iloc[i] > df['high'].iloc[i-j] for j in range(1, n+1)) and \
-               all(df['high'].iloc[i] > df['high'].iloc[i+j] for j in range(1, n+1)):
+            if all(df['high'].iloc[i] > df['high'].iloc[i-j]
+                   for j in range(1, n+1)) and \
+               all(df['high'].iloc[i] > df['high'].iloc[i+j]
+                   for j in range(1, n+1)):
                 df.at[i, 'swing_high'] = True
-            if all(df['low'].iloc[i] < df['low'].iloc[i-j] for j in range(1, n+1)) and \
-               all(df['low'].iloc[i] < df['low'].iloc[i+j] for j in range(1, n+1)):
+            if all(df['low'].iloc[i] < df['low'].iloc[i-j]
+                   for j in range(1, n+1)) and \
+               all(df['low'].iloc[i] < df['low'].iloc[i+j]
+                   for j in range(1, n+1)):
                 df.at[i, 'swing_low'] = True
         return df
 
@@ -94,7 +101,8 @@ class CandleAnalyzer:
 
             if cur in ('reversal_upper', 'reversal_lower'):
                 return 'C2'
-            if prev1 in ('reversal_upper', 'reversal_lower') and cur == 'expansion':
+            if prev1 in ('reversal_upper', 'reversal_lower') \
+               and cur == 'expansion':
                 return 'C3'
             if prev2 in ('reversal_upper', 'reversal_lower') \
                and prev1 == 'expansion' and cur == 'expansion':
@@ -105,9 +113,11 @@ class CandleAnalyzer:
         return df
 
     # --------------------------------
-    # 해석 텍스트 생성
+    # 일봉 해석 텍스트 생성
     # --------------------------------
-    def get_interpretation(self, df: pd.DataFrame, display_name: str, y_idx: int) -> list[str]:
+    def get_interpretation(self, df: pd.DataFrame,
+                           display_name: str,
+                           y_idx: int) -> list[str]:
         if df is None or len(df) < 5:
             return []
 
@@ -125,18 +135,23 @@ class CandleAnalyzer:
         if cnum == 'C2':
             if yesterday['upper_wick_pct'] >= yesterday['lower_wick_pct']:
                 lines.append("위꼬리 반전 캔들 → 상방 레인지 소모")
-                lines.append(f"꼬리 비율 {yesterday['upper_wick_pct']}% → 추가 하락 여력 제한적")
+                lines.append(
+                    f"꼬리 비율 {yesterday['upper_wick_pct']}% "
+                    f"→ 추가 하락 여력 제한적")
                 lines.append("목표: Daily Open 또는 세션 저점 수준으로 낮게 설정")
                 lines.append("→ 오늘(C3) 한 방향 연속 움직임 기대")
             else:
                 lines.append("아래꼬리 반전 캔들 → 하방 레인지 소모")
-                lines.append(f"꼬리 비율 {yesterday['lower_wick_pct']}% → 추가 상승 여력 제한적")
+                lines.append(
+                    f"꼬리 비율 {yesterday['lower_wick_pct']}% "
+                    f"→ 추가 상승 여력 제한적")
                 lines.append("목표: Daily Open 또는 세션 고점 수준으로 낮게 설정")
                 lines.append("→ 오늘(C3) 한 방향 연속 움직임 기대")
             lines.append(f"전일 EQ(0.5): {f(yesterday['eq'])}")
 
         elif cnum == 'C3':
-            prev_max_wick = max(prev1['upper_wick_pct'], prev1['lower_wick_pct'])
+            prev_max_wick = max(prev1['upper_wick_pct'],
+                                prev1['lower_wick_pct'])
             lines.append(f"전전일(C2) 꼬리 {prev_max_wick}% → C3 연속 흐름")
             if direction == 'up':
                 lines.append("전일 상방 확장 마감")
@@ -178,3 +193,56 @@ class CandleAnalyzer:
             lines.append("⚠ 전일 스윙 저점 확인 → 반전 가능성 주시")
 
         return lines
+
+    # --------------------------------
+    # 주봉 컨텍스트 한 줄 텍스트 생성
+    # --------------------------------
+    def get_weekly_context(self, weekly_df: pd.DataFrame,
+                           display_name: str,
+                           w_idx: int) -> dict | None:
+        if weekly_df is None or len(weekly_df) < 3:
+            return None
+
+        try:
+            w     = weekly_df.iloc[w_idx]
+            dec   = DECIMAL_PLACES.get(display_name, 5)
+
+            def f(val):
+                return f"{val:,.{dec}f}" if dec > 0 else f"{val:,.0f}"
+
+            cnum      = w['candle_num']
+            ctype     = w['candle_type']
+
+            type_label = {
+                'reversal_upper': '반전(위꼬리)',
+                'reversal_lower': '반전(아래꼬리)',
+                'expansion':      '확장',
+                'neutral':        '-',
+            }.get(ctype, '-')
+
+            cnum_label = cnum if cnum != '-' else '-'
+
+            # ★ 수정: MT5 주봉 week_start(월요일) → 금요일 마감일로 표시
+            #   Binance 주봉 week_start(UTC 일요일) → 토요일(+6일) 마감으로 표시
+            #   단, 여기서는 브로커 구분 없이 +4일(금요일)로 통일
+            #   (MT5 기준 - 금융 시장 표준 마감일)
+            week_start_date = w['date']
+            if hasattr(week_start_date, 'to_pydatetime'):
+                week_start_date = week_start_date.to_pydatetime()
+            week_close_date = week_start_date + pd.Timedelta(days=4)
+
+            return {
+                "week_date":       week_close_date.strftime('%m/%d'),
+                "high":            f(w['high']),
+                "low":             f(w['low']),
+                "eq":              f(w['eq']),
+                "body_pct":        w['body_pct'],
+                "upper_wick_pct":  w['upper_wick_pct'],
+                "lower_wick_pct":  w['lower_wick_pct'],
+                "candle_type":     type_label,
+                "candle_num":      cnum_label,
+                "swing_high":      w['swing_high'],
+                "swing_low":       w['swing_low'],
+            }
+        except Exception:
+            return None

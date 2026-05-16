@@ -35,11 +35,12 @@ class MainWindow(QMainWindow):
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("준비")
 
-        # 리포트 완료 시 → 스크립트 탭으로 브로커/종목 동기화
+        # 리포트 완료 시 → 스크립트 탭으로 브로커/종목/날짜 동기화
         self.report_tab.sync_to_script.connect(self._sync_to_script)
 
     def _sync_to_script(self, selected: list):
-        self.script_tab.sync_from_report(selected)
+        manual_date = self.report_tab.get_manual_date()
+        self.script_tab.sync_from_report(selected, manual_date)
 
     def set_status(self, msg: str):
         self.status_bar.showMessage(msg)
